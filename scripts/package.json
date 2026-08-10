@@ -1,0 +1,17 @@
+{
+  "name": "shujuku-template-tool",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "shujuku-template": "./bin/shujuku-template.mjs"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "typescript": "5.9.3"
+  }
+}
