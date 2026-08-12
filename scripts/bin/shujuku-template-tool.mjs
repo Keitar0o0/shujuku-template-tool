@@ -144,6 +144,20 @@ function patchValue(current, patch, path) {
   return patch
 }
 
+// 字符串 find-replace：pairs 为 [[旧串, 新串], ...]，逐条替换所有出现；旧串未命中即报错
+function replaceAllIn(op, sec, current, pairs) {
+  if (typeof current !== 'string') fail(`patch ${op}.sourceData.${sec} 做字符串替换，但当前值是 ${typeof current}`)
+  let cur = current
+  for (const p of pairs) {
+    if (!Array.isArray(p) || p.length !== 2) fail(`patch ${op}.sourceData.${sec} 的替换项必须是 [旧串, 新串]`)
+    const [from, to] = p
+    if (typeof from !== 'string' || typeof to !== 'string') fail(`patch ${op}.sourceData.${sec} 的替换项 [旧串, 新串] 必须是字符串`)
+    if (!cur.includes(from)) fail(`patch ${op}.sourceData.${sec} 替换未命中："${from}"`)
+    cur = cur.split(from).join(to)
+  }
+  return cur
+}
+
 function applyPatch(doc, patch) {
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
     fail('patch 必须是一个对象')
@@ -178,7 +192,12 @@ function applyPatch(doc, patch) {
         if (!fv || typeof fv !== 'object' || Array.isArray(fv)) fail(`patch ${op}.sourceData 必须是对象`)
         for (const [sec, sv] of Object.entries(fv)) {
           if (!SECTIONS.includes(sec)) fail(`patch ${op}.sourceData 只允许 ${SECTIONS.join(', ')}，收到 "${sec}"`)
-          if (sv !== undefined) sheet.sourceData[sec] = patchValue(sheet.sourceData[sec], sv, `${op}.sourceData.${sec}`)
+          if (sv === undefined) continue
+          if (Array.isArray(sv)) {
+            sheet.sourceData[sec] = replaceAllIn(op, sec, sheet.sourceData[sec], sv)
+          } else {
+            sheet.sourceData[sec] = patchValue(sheet.sourceData[sec], sv, `${op}.sourceData.${sec}`)
+          }
         }
         continue
       }
@@ -236,7 +255,8 @@ function printHelp() {
 说明:
   - 表名可用 表名 / key / uid 任一种
   - patch 只允许改: 每张表的 name、sourceData 六段、columns、hiddenPhysicalColumns、columnAliases；mate/exportConfig 等只读
-  - patch 的 sourceData 六段、columns、hiddenPhysicalColumns、columnAliases 均整体替换（columns 会重建表头）
+  - patch 的 sourceData 按段替换（给哪段改哪段，未给的段保留）；columns、hiddenPhysicalColumns、columnAliases 整体替换（columns 会重建表头）
+  - sourceData 段值传字符串=整体替换；传 [[旧串,新串], ...] = 字符串替换（逐条替换所有出现，旧串未命中则报错）
   - hiddenPhysicalColumns 传空数组、columnAliases 传空对象可删除该字段
   - 输入一律走文件路径
 `)
