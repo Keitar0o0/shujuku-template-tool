@@ -12,7 +12,8 @@ description: SillyTavern「数据库」插件模板（`mate` + `sheet_*`）的�
 - 需要先快速了解一个模板有哪些表、每张表有哪些列 → 用 `overview`
 - 需要看某张表的完整填表引导（六段） → 用 `sheets`
 - 只需某一段（如只改 DDL、只改更新提示词） → 用 `section`
-- 要改列名 / 改某段提示词 / 改表名 → 用 `apply`
+- 改已有表（列名 / 某段提示词 / 表名）或**新增表** → 用 `apply`（打印改动摘要）
+- 写完 / 改完模板 → 用 `validate` 校验结构
 
 ## 命令
 
@@ -26,23 +27,26 @@ node ./scripts/bin/shujuku-template-tool.mjs sheets <file.json> <表名>
 # 某张表某一节
 node ./scripts/bin/shujuku-template-tool.mjs section <file.json> <表名> <note|initNode|insertNode|updateNode|deleteNode|ddl>
 
-# 应用 patch（写回原文件）
+# 应用 patch（打印改动摘要并写回原文件）
 node ./scripts/bin/shujuku-template-tool.mjs apply <file.json> <patch.json>
 
-# 预览 patch 结果而不写盘
+# 只打印改动摘要，不写盘
 node ./scripts/bin/shujuku-template-tool.mjs apply --preview <file.json> <patch.json>
 
 # 校验模板结构完整性
 node ./scripts/bin/shujuku-template-tool.mjs validate <file.json>
 ```
 
+`apply` 会先校验 patch 后模板结构仍完整，失败则**不写盘**并报错
+
 可以在 `package.json` 的 `bin` 里 `pnpm link` / `bun link` 后直接用 `shujuku-template-tool`
 
 ## patch 格式（通用）
 
-patch 是 JSON 对象，键为 `sheet_*`，值为针对该表的修改。**只允许改五样**：
-`name`（表名）、`sourceData` 六段、`columns`（中文列名数组）、`hiddenPhysicalColumns`（物理隐藏列数组）、
-`columnAliases`（物理列别名对象）。`mate`、`exportConfig`、`updateConfig` 等结构字段一律只读，patch 会报错
+patch 是 JSON 对象，键为 `sheet_*`：
+
+- **键指向已存在的表** = 修改该表，**只允许改五样**：`name`（表名）、`sourceData` 六段、`columns`（中文列名数组）、`hiddenPhysicalColumns`（物理隐藏列数组）、`columnAliases`（物理列别名对象）。`mate`、`exportConfig`、`updateConfig` 等结构字段一律只读，patch 会报错
+- **键指向不存在的 `sheet_*`** = **新增表**：必需 `name` + `columns`，可选 `sourceData`（缺段补空串）/ `uid`（默认 = key）/ `orderNo`（默认最大 + 1）/ `exportConfig` / `updateConfig`；`content` 自动补 `row_id` 表头，`exportConfig` 默认 disabled constant 模式
 
 ```jsonc
 {
