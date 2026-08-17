@@ -45,7 +45,7 @@ node ./scripts/bin/shujuku-template-tool.mjs validate <file.json>
 
 patch 是 JSON 对象，键为 `sheet_*`：
 
-- **键指向已存在的表** = 修改该表，**只允许改五样**：`name`（表名）、`sourceData` 六段、`columns`（中文列名数组）、`hiddenPhysicalColumns`（物理隐藏列数组）、`columnAliases`（物理列别名对象）。`mate`、`exportConfig`、`updateConfig` 等结构字段一律只读，patch 会报错
+- **键指向已存在的表** = 修改该表，**只允许改六样**：`name`（表名）、`sourceData` 六段、`columns`（中文列名数组）、`hiddenPhysicalColumns`（物理隐藏列数组）、`columnAliases`（物理列别名对象）、`exportConfig`（导出配置）。`mate`、`updateConfig` 等结构字段一律只读，patch 会报错
 - **键指向不存在的 `sheet_*`** = **新增表**：必需 `name` + `columns`，可选 `sourceData`（缺段补空串）/ `uid`（默认 = key）/ `orderNo`（默认最大 + 1）/ `exportConfig` / `updateConfig`；`content` 自动补 `row_id` 表头，`exportConfig` 默认 disabled constant 模式
 
 ```jsonc
@@ -58,6 +58,12 @@ patch 是 JSON 对象，键为 `sheet_*`：
     "sourceData": {                           // 可选：改六段中的任意段
       "ddl": "CREATE TABLE ...",              // 字符串：整体替换该段
       "note": [["旧串", "新串"]]              // 数组：字符串替换（旧串未命中报错）
+    },
+    "exportConfig": {                         // 可选：改导出配置（按字段合并，未给的字段保留）
+      "enabled": true,                        // 标量直接替换
+      "extraIndexColumns": ["平台", "账号"],  // 数组整体替换；传 [] 清空
+      "extraIndexColumnModes": { "平台": "both" },  // 对象整体替换；传 {} 清空
+      "entryPlacement": { "depth": 10000 }    // 对象合并（保留 position/order）
     }
   }
 }
@@ -68,4 +74,6 @@ patch 是 JSON 对象，键为 `sheet_*`：
 - 工具无 stdin 读取，输入一律走文件路径
 - `apply` 会先校验 patch 后模板结构仍完整，失败则**不写盘**并报错
 - patch 的 `sourceData` 按**段**替换（patch 里给哪段就改哪段，未给的段保留原值）；`columns`、`hiddenPhysicalColumns`、`columnAliases` 为**整体替换**（`columns` 重建表头并自动补 `row_id` 前缀，后两者传 `[]` / `{}` 删除该字段）
+- `exportConfig` 为**按字段合并**：标量（`enabled`/`entryType`/`keywords`/模板字符串等）直接替换，`extraIndexColumns` 数组与 `extraIndexColumnModes` 对象整体替换（传 `[]` / `{}` 清空），`*Placement` 对象递归合并；未给的字段保留原值
 - `sourceData` 段的值传**字符串**=整体替换；传**数组** `[[旧串, 新串], ...]`=字符串替换（逐条替换所有出现，旧串未命中则报错、不写盘）
+- `validate` 会检查索引配置：`extraIndexColumns` 必须是表内列名、`extraIndexColumnModes` 的键必须在该表 `extraIndexColumns` 内（索引与前端无关，仅影响 AI 侧注入）

@@ -83,6 +83,20 @@ export function validateTemplate(obj) {
         }
       })
     }
+    // exportConfig：索引列必须取自表内列，mode 键必须是索引列的子集
+    if (s.exportConfig && Array.isArray(s.exportConfig.extraIndexColumns)) {
+      const cols = (s.content?.[0] ?? []).filter((c) => c !== 'row_id')
+      const idxCols = s.exportConfig.extraIndexColumns
+      for (const c of idxCols) {
+        if (!cols.includes(c)) errs.push(`表 ${k} 的 extraIndexColumns 含非表内列 "${c}"`)
+      }
+      const modes = s.exportConfig.extraIndexColumnModes
+      if (modes && typeof modes === 'object') {
+        for (const c of Object.keys(modes)) {
+          if (!idxCols.includes(c)) errs.push(`表 ${k} 的 extraIndexColumnModes 键 "${c}" 不在 extraIndexColumns 内`)
+        }
+      }
+    }
   }
   return errs
 }
@@ -303,7 +317,16 @@ export function applyPatch(doc, patch) {
         }
         continue
       }
-      fail(`patch ${op} 只允许 name / sourceData / columns / hiddenPhysicalColumns / columnAliases，收到 "${field}"`)
+      if (field === 'exportConfig') {
+        if (!fv || typeof fv !== 'object' || Array.isArray(fv)) fail(`patch ${op}.exportConfig 必须是对象`)
+        if (!sheet.exportConfig || typeof sheet.exportConfig !== 'object') fail(`patch ${op}.exportConfig 需要 exportConfig 存在`)
+        for (const [k, v] of Object.entries(fv)) {
+          sheet.exportConfig[k] = patchValue(sheet.exportConfig[k], v, `${op}.exportConfig.${k}`)
+        }
+        fields.push(`exportConfig(${Object.keys(fv).length} 项)`)
+        continue
+      }
+      fail(`patch ${op} 只允许 name / sourceData / columns / hiddenPhysicalColumns / columnAliases / exportConfig，收到 "${field}"`)
     }
     changes.push(`✓ ${sheet.name} (${op})：${fields.join('、')}`)
   }
@@ -325,8 +348,9 @@ function printHelp() {
 
 说明:
   - 表名可用 表名 / key / uid 任一种
-  - 已有表的 patch 只允许改: name、sourceData 六段、columns、hiddenPhysicalColumns、columnAliases；mate/exportConfig 等只读
+  - 已有表的 patch 只允许改: name、sourceData 六段、columns、hiddenPhysicalColumns、columnAliases、exportConfig；mate/updateConfig 等只读
   - patch 的 sourceData 按段替换（给哪段改哪段，未给的段保留）；columns、hiddenPhysicalColumns、columnAliases 整体替换（columns 会重建表头）
+  - exportConfig 按字段合并（给哪些字段改哪些，未给的保留）：标量直接替换、extraIndexColumns 数组整体替换、placement 对象合并；extraIndexColumns 传 []、extraIndexColumnModes 传 {} 清空
   - sourceData 段值传字符串=整体替换；传 [[旧串,新串], ...] = 字符串替换（逐条替换所有出现，旧串未命中则报错）
   - hiddenPhysicalColumns 传空数组、columnAliases 传空对象可删除该字段
   - patch 键指向不存在的 sheet_* = 新增表：必需 name + columns，可选 sourceData（缺段补空串）/ uid / orderNo / exportConfig / updateConfig；orderNo 默认最大+1，exportConfig 默认 disabled constant 模式，content 自动补 row_id 表头

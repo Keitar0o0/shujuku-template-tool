@@ -85,8 +85,35 @@ test('hiddenPhysicalColumns / columnAliases 空值删除字段', () => {
   assert.equal('columnAliases' in doc.sheet_a, false)
 })
 
+test('exportConfig 按字段合并：标量替换/数组整体替换/placement 合并', () => {
+  const doc = baseDoc()
+  doc.sheet_a.exportConfig = {
+    enabled: false, entryType: 'constant', keywords: '', extraIndexColumns: ['列1'],
+    extraIndexColumnModes: { 列1: 'both' },
+    entryPlacement: { position: 'at_depth_as_system', depth: 2, order: 10000 },
+  }
+  applyPatch(doc, {
+    sheet_a: {
+      exportConfig: {
+        enabled: true,
+        keywords: '账号',
+        extraIndexColumns: ['列1', '列x'],
+        extraIndexColumnModes: { 列1: 'both', 列x: 'index_only' },
+        entryPlacement: { depth: 10000 },
+      },
+    },
+  })
+  const ec = doc.sheet_a.exportConfig
+  assert.equal(ec.enabled, true) // 标量替换
+  assert.equal(ec.entryType, 'constant') // 未给的字段保留
+  assert.equal(ec.keywords, '账号')
+  assert.deepEqual(ec.extraIndexColumns, ['列1', '列x']) // 数组整体替换
+  assert.deepEqual(ec.extraIndexColumnModes, { 列1: 'both', 列x: 'index_only' })
+  assert.deepEqual(ec.entryPlacement, { position: 'at_depth_as_system', depth: 10000, order: 10000 }) // 对象合并
+})
+
 test('已有表只读字段报错', () => {
-  assert.throws(() => applyPatch(baseDoc(), { sheet_a: { exportConfig: { enabled: true } } }), /只允许 name/)
+  assert.throws(() => applyPatch(baseDoc(), { sheet_a: { updateConfig: { uiSentinel: 1 } } }), /只允许 name/)
   assert.throws(() => applyPatch(baseDoc(), { mate: { type: 'x' } }), /只读/)
   assert.throws(() => applyPatch(baseDoc(), { not_sheet: {} }), /只能以 sheet_ 开头/)
 })
@@ -105,6 +132,15 @@ test('validate：数据行与表头列数不一致报错', () => {
   const doc = baseDoc()
   doc.sheet_a.content.push(['r2', 'y', '多一列'])
   assert.equal(validateTemplate(doc).some((e) => e.includes('列数')), true)
+})
+
+test('validate：extraIndexColumns 非表内列 / mode 键不在索引列内报错', () => {
+  const doc = baseDoc()
+  doc.sheet_a.exportConfig = { enabled: true, extraIndexColumns: ['列1', '不存在的列'], extraIndexColumnModes: {} }
+  assert.equal(validateTemplate(doc).some((e) => e.includes('非表内列')), true)
+  const doc2 = baseDoc()
+  doc2.sheet_a.exportConfig = { enabled: true, extraIndexColumns: ['列1'], extraIndexColumnModes: { 列1: 'both', 多余: 'index_only' } }
+  assert.equal(validateTemplate(doc2).some((e) => e.includes('不在 extraIndexColumns')), true)
 })
 
 test('parseTemplate：列与元信息解析', () => {
