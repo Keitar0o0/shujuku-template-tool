@@ -134,6 +134,54 @@ export function parseTemplate(obj) {
   return { sheets }
 }
 
+function validateDdlMappings(sheetKey, sheet, errs) {
+  const ddl = sheet.sourceData?.ddl
+  const header = sheet.content?.[0]
+  if (typeof ddl !== 'string' || ddl.trim() === '' || !Array.isArray(header)) return
+
+  const physicalColumn = /(?:\(|,|\n)\s*(?:"([^"]+)"|`([^`]+)`|\[([^\]]+)\]|([A-Za-z_][A-Za-z0-9_]*))\s+(?:TEXT|INTEGER|REAL|BLOB|NUMERIC|DECIMAL|BOOLEAN|DATE|DATETIME|VARCHAR|CHAR|DOUBLE|FLOAT)\b/gi
+  const physicalColumns = [...ddl.matchAll(physicalColumn)].map(
+    (match) => match[1] ?? match[2] ?? match[3] ?? match[4],
+  )
+  if (physicalColumns.length === 0) {
+    errs.push(`表 ${sheetKey} 的 DDL 必须包含可解析的字段定义`)
+    return
+  }
+
+  const createLine = ddl.split(/\r?\n/).find((line) => /CREATE\s+TABLE/i.test(line)) ?? ''
+  const tableComment = createLine.match(/\(\s*--\s*(.+?)\s*$/)?.[1]
+  if (!tableComment) {
+    errs.push(`表 ${sheetKey} 的 DDL 建表行缺少 "-- ${sheet.name}"`)
+  } else if (tableComment !== sheet.name) {
+    errs.push(`表 ${sheetKey} 的 DDL 表注释 "${tableComment}" 与 name "${sheet.name}" 不一致`)
+  }
+
+  const mappedColumns = new Map()
+  for (const line of ddl.split(/\r?\n/)) {
+    const parts = line.split(/\s+--\s*/, 2)
+    const match = parts[0].match(/^\s*(?:"([^"]+)"|`([^`]+)`|\[([^\]]+)\]|([A-Za-z_][A-Za-z0-9_]*))\s+(?:TEXT|INTEGER|REAL|BLOB|NUMERIC|DECIMAL|BOOLEAN|DATE|DATETIME|VARCHAR|CHAR|DOUBLE|FLOAT)\b/i)
+    if (!match) continue
+    const column = match[1] ?? match[2] ?? match[3] ?? match[4]
+    mappedColumns.set(column, parts[1]?.trim() ?? '')
+  }
+
+  if (physicalColumns.length !== header.length) {
+    errs.push(`表 ${sheetKey} 的 DDL 字段数 ${physicalColumns.length} 与 content 表头 ${header.length} 不一致`)
+  }
+  for (const [index, column] of physicalColumns.entries()) {
+    const expected = index === 0 ? '行号' : header[index]
+    const comment = mappedColumns.get(column)
+    if (!comment) {
+      errs.push(`表 ${sheetKey} 的 DDL 字段 "${column}" 缺少 "-- ${expected ?? '中文列名'}"`)
+    } else if (typeof expected === 'string' && comment !== expected) {
+      errs.push(`表 ${sheetKey} 的 DDL 字段 "${column}" 注释 "${comment}" 与 content 列名 "${expected}" 不一致`)
+    }
+  }
+  if (physicalColumns[0] !== 'row_id') {
+    errs.push(`表 ${sheetKey} 的 DDL 第一列必须是 row_id INTEGER PRIMARY KEY, -- 行号`)
+  }
+}
+
 export function validateTemplate(obj) {
   const errs = []
   if (!isPlainObject(obj)) return ['模板根节点必须是对象']
@@ -227,6 +275,8 @@ export function validateTemplate(obj) {
         }
       })
     }
+
+    validateDdlMappings(k, s, errs)
 
     if (s.hiddenPhysicalColumns !== undefined) {
       if (!Array.isArray(s.hiddenPhysicalColumns) || s.hiddenPhysicalColumns.some((v) => typeof v !== 'string')) {

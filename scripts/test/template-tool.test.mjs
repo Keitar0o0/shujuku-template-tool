@@ -99,8 +99,12 @@ test('sourceData 字符串替换，未命中报错', () => {
 
 test('sourceData 整体替换', () => {
   const doc = baseDoc()
-  applyPatch(doc, { sheet_a: { sourceData: { ddl: 'CREATE TABLE x (...)' } } })
-  assert.equal(doc.sheet_a.sourceData.ddl, 'CREATE TABLE x (...)')
+  const ddl = `CREATE TABLE x ( -- 表A
+  row_id INTEGER PRIMARY KEY, -- 行号
+  value TEXT -- 列1
+);`
+  applyPatch(doc, { sheet_a: { sourceData: { ddl } } })
+  assert.equal(doc.sheet_a.sourceData.ddl, ddl)
   assert.equal(doc.sheet_a.sourceData.note, '说明A') // 未给的段保留
 })
 

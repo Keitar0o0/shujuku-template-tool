@@ -28,7 +28,7 @@ function baseDoc() {
         insertNode: '',
         updateNode: '',
         deleteNode: '',
-        ddl: 'CREATE TABLE demo (row_id INTEGER PRIMARY KEY, title TEXT);',
+        ddl: 'CREATE TABLE demo ( -- 表A\n  row_id INTEGER PRIMARY KEY, -- 行号\n  title TEXT -- 标题\n);',
       },
       content: [['row_id', '标题']],
       updateConfig: {

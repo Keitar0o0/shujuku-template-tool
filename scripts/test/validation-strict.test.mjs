@@ -165,6 +165,57 @@ test('严格校验：DDL 物理列名不得包含大小写 id，row_id 除外', 
   }
 })
 
+test('严格校验：DDL 表与列注释匹配 name 和 content', () => {
+  const doc = validDoc()
+  doc.sheet_a.sourceData.ddl = `CREATE TABLE demo ( -- 表A
+  row_id INTEGER PRIMARY KEY, -- 行号
+  name TEXT NOT NULL -- 名称
+);`
+  assert.deepEqual(validateTemplate(doc), [])
+})
+
+test('严格校验：DDL 表名与字段必须保留中文注释', () => {
+  const missingTable = validDoc()
+  missingTable.sheet_a.sourceData.ddl = `CREATE TABLE demo (
+  row_id INTEGER PRIMARY KEY, -- 行号
+  name TEXT NOT NULL -- 名称
+);`
+  expectInvalid(missingTable, /建表行.*-- 表A/)
+
+  const missingColumn = validDoc()
+  missingColumn.sheet_a.sourceData.ddl = `CREATE TABLE demo ( -- 表A
+  row_id INTEGER PRIMARY KEY, -- 行号
+  name TEXT NOT NULL
+);`
+  expectInvalid(missingColumn, /name.*缺少.*-- 名称/)
+})
+
+test('严格校验：DDL 字段注释与 content 对应列一致', () => {
+  const wrongRowId = validDoc()
+  wrongRowId.sheet_a.sourceData.ddl = `CREATE TABLE demo ( -- 表A
+  row_id INTEGER PRIMARY KEY, -- 编号
+  name TEXT NOT NULL -- 名称
+);`
+  expectInvalid(wrongRowId, /row_id.*编号.*行号/)
+
+  const wrongBusinessColumn = validDoc()
+  wrongBusinessColumn.sheet_a.sourceData.ddl = `CREATE TABLE demo ( -- 表A
+  row_id INTEGER PRIMARY KEY, -- 行号
+  name TEXT NOT NULL -- 姓名
+);`
+  expectInvalid(wrongBusinessColumn, /name.*姓名.*名称/)
+})
+
+test('严格校验：DDL 字段数与 content 表头一致', () => {
+  const doc = validDoc()
+  doc.sheet_a.sourceData.ddl = `CREATE TABLE demo ( -- 表A
+  row_id INTEGER PRIMARY KEY, -- 行号
+  name TEXT NOT NULL, -- 名称
+  extra TEXT -- 额外
+);`
+  expectInvalid(doc, /DDL 字段数 3.*content 表头 2/)
+})
+
 test('严格校验：表名不得重复', () => {
   const doc = validDoc()
   doc.sheet_b = validSheet('sheet_b', '表A', 1)
