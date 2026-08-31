@@ -34,29 +34,57 @@ test('新增表：自动补 uid/orderNo/缺段空串/默认配置', () => {
   assert.match(changes[0], /新增表 表B/)
 })
 
-test('新增表：uid/orderNo/exportConfig/updateConfig 可覆盖', () => {
+test('新增表：uid 由表键生成，orderNo 与局部配置可覆盖', () => {
   const doc = baseDoc()
   applyPatch(doc, {
     sheet_b: {
-      name: '表B', columns: ['c'], uid: 'sheet_custom', orderNo: 42,
+      name: '表B', columns: ['c'], orderNo: 42,
       exportConfig: { enabled: true }, updateConfig: { uiSentinel: 1 },
     },
   })
-  assert.equal(doc.sheet_b.uid, 'sheet_custom')
+  assert.equal(doc.sheet_b.uid, 'sheet_b')
   assert.equal(doc.sheet_b.orderNo, 42)
   assert.equal(doc.sheet_b.exportConfig.enabled, true)
+  assert.equal(doc.sheet_b.exportConfig.entryName, '表B')
   assert.equal(doc.sheet_b.updateConfig.uiSentinel, 1)
+  assert.equal(doc.sheet_b.updateConfig.contextDepth, -1)
 })
 
 test('新增表：缺 name / columns 报错', () => {
   assert.throws(() => applyPatch(baseDoc(), { sheet_b: { columns: ['c'] } }), /必须提供 name/)
-  assert.throws(() => applyPatch(baseDoc(), { sheet_b: { name: '表B' } }), /必须提供非空 columns/)
+  assert.throws(() => applyPatch(baseDoc(), { sheet_b: { name: '表B' } }), /columns.*必须是非空/)
   assert.throws(() => applyPatch(baseDoc(), { sheet_b: { name: '表B', columns: ['c'], mate: 1 } }), /不允许字段/)
+  assert.throws(() => applyPatch(baseDoc(), { sheet_b: { name: '表B', columns: ['c'], uid: 'sheet_b' } }), /不允许字段 "uid"/)
+})
+
+// ---------- 删除表 ----------
+test('删除表：null 删除已有表并返回摘要', () => {
+  const doc = baseDoc()
+  applyPatch(doc, { sheet_b: { name: '表B', columns: ['列x'] } })
+  const changes = applyPatch(doc, { sheet_b: null })
+  assert.equal('sheet_b' in doc, false)
+  assert.match(changes[0], /删除表 表B/)
+})
+
+test('删除表：目标不存在或删除全部表时报错', () => {
+  assert.throws(() => applyPatch(baseDoc(), { sheet_missing: null }), /目标不存在/)
+  assert.throws(() => applyPatch(baseDoc(), { sheet_a: null }), /不能删除全部表/)
+})
+
+test('删除表：同一 patch 可用新表替换最后一张旧表', () => {
+  const doc = baseDoc()
+  applyPatch(doc, {
+    sheet_a: null,
+    sheet_b: { name: '表B', columns: ['列x'] },
+  })
+  assert.equal('sheet_a' in doc, false)
+  assert.equal(doc.sheet_b.name, '表B')
 })
 
 // ---------- 已有表 patch ----------
 test('改名 + columns 重建表头', () => {
   const doc = baseDoc()
+  doc.sheet_a.content = [doc.sheet_a.content[0]]
   applyPatch(doc, { sheet_a: { name: '新名', columns: ['c1', 'c2'] } })
   assert.equal(doc.sheet_a.name, '新名')
   assert.deepEqual(doc.sheet_a.content[0], ['row_id', 'c1', 'c2'])
@@ -87,6 +115,8 @@ test('hiddenPhysicalColumns / columnAliases 空值删除字段', () => {
 
 test('exportConfig 按字段合并：标量替换/数组整体替换/placement 合并', () => {
   const doc = baseDoc()
+  doc.sheet_a.content[0].push('列x')
+  doc.sheet_a.content[1].push('y')
   doc.sheet_a.exportConfig = {
     enabled: false, entryType: 'constant', keywords: '', extraIndexColumns: ['列1'],
     extraIndexColumnModes: { 列1: 'both' },
@@ -110,6 +140,65 @@ test('exportConfig 按字段合并：标量替换/数组整体替换/placement �
   assert.deepEqual(ec.extraIndexColumns, ['列1', '列x']) // 数组整体替换
   assert.deepEqual(ec.extraIndexColumnModes, { 列1: 'both', 列x: 'index_only' })
   assert.deepEqual(ec.entryPlacement, { position: 'at_depth_as_system', depth: 10000, order: 10000 }) // 对象合并
+})
+
+test('改名会同步默认导出条目名，并保留自定义条目名', () => {
+  const defaults = baseDoc()
+  defaults.sheet_a.exportConfig = {
+    entryName: '表A', extraIndexEntryName: '表A-索引', extraIndexColumns: [], extraIndexColumnModes: {},
+  }
+  applyPatch(defaults, { sheet_a: { name: '新表名' } })
+  assert.equal(defaults.sheet_a.exportConfig.entryName, '新表名')
+  assert.equal(defaults.sheet_a.exportConfig.extraIndexEntryName, '新表名-索引')
+
+  const custom = baseDoc()
+  custom.sheet_a.exportConfig = {
+    entryName: '自定义正文', extraIndexEntryName: '自定义索引', extraIndexColumns: [], extraIndexColumnModes: {},
+  }
+  applyPatch(custom, { sheet_a: { name: '新表名' } })
+  assert.equal(custom.sheet_a.exportConfig.entryName, '自定义正文')
+  assert.equal(custom.sheet_a.exportConfig.extraIndexEntryName, '自定义索引')
+})
+
+test('orderNo 可修改，但重复值会整批回滚', () => {
+  const doc = baseDoc()
+  applyPatch(doc, { sheet_a: { orderNo: 7 } })
+  assert.equal(doc.sheet_a.orderNo, 7)
+
+  applyPatch(doc, { sheet_b: { name: '表B', columns: ['列B'], orderNo: 8 } })
+  const before = structuredClone(doc)
+  assert.throws(() => applyPatch(doc, { sheet_a: { orderNo: 8 } }), /orderNo.*重复/)
+  assert.deepEqual(doc, before)
+})
+
+test('patch 中途失败或最终校验失败时不修改原对象', () => {
+  const during = baseDoc()
+  const duringBefore = structuredClone(during)
+  assert.throws(() => applyPatch(during, {
+    sheet_a: { name: '半成品' },
+    sheet_missing: null,
+  }), /目标不存在/)
+  assert.deepEqual(during, duringBefore)
+
+  const after = baseDoc()
+  const afterBefore = structuredClone(after)
+  assert.throws(() => applyPatch(after, {
+    sheet_a: { sourceData: { ddl: 'CREATE TABLE demo (row_id INTEGER PRIMARY KEY, identity_text TEXT);' } },
+  }), /identity_text.*ID\/id/i)
+  assert.deepEqual(after, afterBefore)
+})
+
+test('patch 字段严格限制类型和配置键', () => {
+  assert.throws(
+    () => applyPatch(baseDoc(), { sheet_a: { sourceData: { note: { text: 'x' } } } }),
+    /note.*字符串或替换项数组/,
+  )
+  const doc = baseDoc()
+  doc.sheet_a.exportConfig = { extraIndexColumns: [], extraIndexColumnModes: {} }
+  assert.throws(
+    () => applyPatch(doc, { sheet_a: { exportConfig: { typoEnabled: true } } }),
+    /不允许字段 "typoEnabled"/,
+  )
 })
 
 test('已有表只读字段报错', () => {

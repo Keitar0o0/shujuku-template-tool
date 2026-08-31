@@ -12,32 +12,35 @@ description: SillyTavern「数据库」插件模板（`mate` + `sheet_*`）的�
 - 需要先快速了解一个模板有哪些表、每张表有哪些列 → 用 `overview`
 - 需要看某张表的完整填表引导（六段） → 用 `sheets`
 - 只需某一段（如只改 DDL、只改更新提示词） → 用 `section`
-- 改已有表（列名 / 某段提示词 / 表名）或**新增表** → 用 `apply`（打印改动摘要）
+- 改已有表（列名 / 某段提示词 / 表名）、**新增表**或**删除表** → 用 `apply`（打印改动摘要）
 - 写完 / 改完模板 → 用 `validate` 校验结构
 
 ## 命令
 
 ```bash
 # 概览：表名 + 每表列
-node ./scripts/bin/shujuku-template-tool.mjs overview <file.json>
+bun ./scripts/bin/shujuku-template-tool.mjs overview <file.json>
 
 # 某张表全部六段
-node ./scripts/bin/shujuku-template-tool.mjs sheets <file.json> <表名>
+bun ./scripts/bin/shujuku-template-tool.mjs sheets <file.json> <表名>
 
 # 某张表某一节
-node ./scripts/bin/shujuku-template-tool.mjs section <file.json> <表名> <note|initNode|insertNode|updateNode|deleteNode|ddl>
+bun ./scripts/bin/shujuku-template-tool.mjs section <file.json> <表名> <note|initNode|insertNode|updateNode|deleteNode|ddl>
 
 # 应用 patch（打印改动摘要并写回原文件）
-node ./scripts/bin/shujuku-template-tool.mjs apply <file.json> <patch.json>
+bun ./scripts/bin/shujuku-template-tool.mjs apply <file.json> <patch.json>
 
-# 只打印改动摘要，不写盘
-node ./scripts/bin/shujuku-template-tool.mjs apply --preview <file.json> <patch.json>
+# 只打印改动摘要，不写盘；--preview 也可放在末尾
+bun ./scripts/bin/shujuku-template-tool.mjs apply --preview <file.json> <patch.json>
+
+# 从 stdin 读取 patch
+bun ./scripts/bin/shujuku-template-tool.mjs apply <file.json> -
 
 # 校验模板结构完整性
-node ./scripts/bin/shujuku-template-tool.mjs validate <file.json>
+bun ./scripts/bin/shujuku-template-tool.mjs validate <file.json>
 ```
 
-`apply` 会先校验 patch 后模板结构仍完整，失败则**不写盘**并报错
+`apply` 会在内存副本上完成全部修改与严格校验，再通过同目录临时文件原子替换源文件。任一步失败时保留原对象和原文件
 
 可以在 `package.json` 的 `bin` 里 `pnpm link` / `bun link` 后直接用 `shujuku-template-tool`
 
@@ -45,13 +48,17 @@ node ./scripts/bin/shujuku-template-tool.mjs validate <file.json>
 
 patch 是 JSON 对象，键为 `sheet_*`：
 
-- **键指向已存在的表** = 修改该表，**只允许改六样**：`name`（表名）、`sourceData` 六段、`columns`（中文列名数组）、`hiddenPhysicalColumns`（物理隐藏列数组）、`columnAliases`（物理列别名对象）、`exportConfig`（导出配置）。`mate`、`updateConfig` 等结构字段一律只读，patch 会报错
-- **键指向不存在的 `sheet_*`** = **新增表**：必需 `name` + `columns`，可选 `sourceData`（缺段补空串）/ `uid`（默认 = key）/ `orderNo`（默认最大 + 1）/ `exportConfig` / `updateConfig`；`content` 自动补 `row_id` 表头，`exportConfig` 默认 disabled constant 模式
+- **键指向已存在的表** = 修改该表，只允许改 `name`、`sourceData` 六段、`columns`、`hiddenPhysicalColumns`、`columnAliases`、`exportConfig`、`orderNo`。`mate`、`uid`、`updateConfig` 等结构字段只读
+- **键指向不存在的 `sheet_*`** = 新增表：必需 `name` + `columns`，可选 `sourceData`（缺段补空串）/ `orderNo`（默认最大 + 1）/ `exportConfig` / `updateConfig`。`uid` 固定等于表键，`content` 自动补 `row_id` 表头，局部配置与完整默认配置合并
+- **已存在的表传 `null`** = **删除表**；目标不存在时报错，且模板至少保留一张表
+- 表键与 `uid` 的标准命名为 `sheet_` + 中文 `name` 的逐字全拼，小写音节以 `_` 分隔；如 `name: "世界状态"` 对应 `sheet_shi_jie_zhuang_tai`。插件可自动修正偏离此标准的键名，`validate` 仅校验 `uid` 与表键一致
 
 ```jsonc
 {
+  "sheet_jiu_biao": null,                   // 删除已有表
   "sheet_zhang_hao_shu_ju": {
     "name": "账号数据",                       // 可选：改表名
+    "orderNo": 3,                            // 可选：调整表顺序
     "columns": ["平台", "账号", "名称"],      // 可选：整体替换中文列名（重建表头）
     "hiddenPhysicalColumns": ["col_a"],       // 可选：整体替换物理隐藏列；传 [] 删除该字段
     "columnAliases": { "col_b": ["别名1"] },  // 可选：整体替换列别名；传 {} 删除该字段
@@ -71,9 +78,15 @@ patch 是 JSON 对象，键为 `sheet_*`：
 
 ## 注意事项
 
-- 工具无 stdin 读取，输入一律走文件路径
-- `apply` 会先校验 patch 后模板结构仍完整，失败则**不写盘**并报错
+- patch 文件路径传 `-` 时从 stdin 读取
+- `--preview` 可放在两个文件参数之前或之后，预览只打印摘要与最终表数
+- `apply` 在内存副本上完成整批 patch 和校验，写盘使用同目录临时文件原子替换；失败时原对象和原文件保持不变
+- 删除表不会重排其余表的 `orderNo`
+- 已有表可通过 `orderNo` 调整顺序，但重复或非负整数以外的值会被拒绝
 - patch 的 `sourceData` 按**段**替换（patch 里给哪段就改哪段，未给的段保留原值）；`columns`、`hiddenPhysicalColumns`、`columnAliases` 为**整体替换**（`columns` 重建表头并自动补 `row_id` 前缀，后两者传 `[]` / `{}` 删除该字段）
-- `exportConfig` 为**按字段合并**：标量（`enabled`/`entryType`/`keywords`/模板字符串等）直接替换，`extraIndexColumns` 数组与 `extraIndexColumnModes` 对象整体替换（传 `[]` / `{}` 清空），`*Placement` 对象递归合并；未给的字段保留原值
+- `columns` 改变列数时，已有数据行的表会被拒绝；先迁移或清空数据行
+- `exportConfig` 为**按字段合并**：布尔、字符串字段直接替换，`extraIndexColumns` 数组与 `extraIndexColumnModes` 对象整体替换，`*Placement` 对象按 `position` / `depth` / `order` 合并；未知字段或错误类型会被拒绝
 - `sourceData` 段的值传**字符串**=整体替换；传**数组** `[[旧串, 新串], ...]`=字符串替换（逐条替换所有出现，旧串未命中则报错、不写盘）
-- `validate` 会检查索引配置：`extraIndexColumns` 必须是表内列名、`extraIndexColumnModes` 的键必须在该表 `extraIndexColumns` 内（索引与前端无关，仅影响 AI 侧注入）
+- 改名时，工具会同步仍采用默认值的 `entryName` 与 `extraIndexEntryName`，自定义名称保持不变
+- `validate` 会严格检查根结构、表键、`uid`、表名与顺序号唯一性、六段字符串、`row_id` 表头、列名和行宽、配置类型与索引列引用
+- 业务列名和 DDL 物理列名禁止包含 `ID` / `id`，内置 `row_id` 除外
