@@ -97,6 +97,29 @@ test('sourceData 字符串替换，未命中报错', () => {
   assert.throws(() => applyPatch(baseDoc(), { sheet_a: { sourceData: { note: [['不存在', 'x']] } } }), /替换未命中/)
 })
 
+test('sourceData 替换次数默认 1，多命中须显式声明并按字面替换', () => {
+  const doc = baseDoc()
+  doc.sheet_a.sourceData.note = '旧串 旧串'
+  const before = structuredClone(doc)
+  assert.throws(() => applyPatch(doc, { sheet_a: { sourceData: { note: [['旧串', '新串']] } } }), /预期 1 次，实际 2 次/)
+  assert.deepEqual(doc, before)
+  applyPatch(doc, { sheet_a: { sourceData: { note: [['旧串', '$&', 2], ['$&', '$1', 2]] } } })
+  assert.equal(doc.sheet_a.sourceData.note, '$1 $1')
+
+  doc.sheet_a.sourceData.note = 'aaa'
+  applyPatch(doc, { sheet_a: { sourceData: { note: [['aa', 'x']] } } })
+  assert.equal(doc.sheet_a.sourceData.note, 'xa')
+})
+
+test('sourceData 替换拒绝空旧串和错误次数，整批保留原对象', () => {
+  for (const pair of [['', 'x'], ['说明', 'x', 0], ['说明', 'x', -1], ['说明', 'x', 1.5], ['说明', 'x', '1'], ['说明', 'x', null]]) {
+    const doc = baseDoc()
+    const before = structuredClone(doc)
+    assert.throws(() => applyPatch(doc, { sheet_a: { name: '半成品', sourceData: { note: [pair] } } }), /非空字符串|正整数/)
+    assert.deepEqual(doc, before)
+  }
+})
+
 test('sourceData 整体替换', () => {
   const doc = baseDoc()
   const ddl = `CREATE TABLE x ( -- 表A

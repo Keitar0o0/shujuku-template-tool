@@ -58,42 +58,65 @@ const UPDATE_CONFIG_FIELDS = ['uiSentinel', 'contextDepth', 'updateFrequency', '
 
 // ---------- 通用 ----------
 // 抛异常而非 process.exit：测试（assert.throws）可捕获，CLI 入口统一 catch 打印
-class CliError extends Error {}
-function fail(msg) {
-  throw new CliError(msg)
+class CliError extends Error {
+  constructor(message, errors = [message]) {
+    super(message)
+    this.errors = errors
+  }
+}
+function fail(msg, errors) {
+  throw new CliError(msg, errors)
 }
 function isPlainObject(value) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
   const prototype = Object.getPrototypeOf(value)
   return prototype === Object.prototype || prototype === null
 }
-export function readJson(file) {
-  if (file === '-') {
-    let raw
-    try { raw = readFileSync(0, 'utf8') } catch (e) { fail(`无法读取标准输入: ${e.message}`) }
-    try { return JSON.parse(raw) } catch (e) { fail(`标准输入 JSON 解析失败: ${e.message}`) }
-  }
-  const abs = resolve(file)
-  if (!existsSync(abs)) fail(`文件不存在: ${abs}`)
+function readJsonSource(file) {
+  const source = file === '-' ? 0 : resolve(file)
+  if (file !== '-' && !existsSync(source)) fail(`文件不存在: ${source}`)
   let raw
-  try { raw = readFileSync(abs, 'utf8') } catch (e) { fail(`无法读取文件: ${e.message}`) }
-  try { return JSON.parse(raw) } catch (e) { fail(`JSON 解析失败: ${e.message}`) }
+  try { raw = readFileSync(source) } catch (e) { fail(`读取${file === '-' ? '标准输入' : '文件'}失败: ${e.message}`) }
+  try { return { doc: JSON.parse(raw.toString('utf8')), raw } } catch (e) { fail(`JSON 解析失败: ${e.message}`) }
 }
-export function writeJson(file, obj) {
+export function readJson(file) {
+  return readJsonSource(file).doc
+}
+export function writeJson(file, obj, { expectedBytes } = {}) {
   const abs = resolve(file)
   const temp = join(dirname(abs), `.${basename(abs)}.${process.pid}.${randomUUID()}.tmp`)
   const raw = JSON.stringify(obj, null, 2) + '\n'
   let fd
   let created = false
+  let backup = null
+  let backupCreated = false
+  const checkVersion = () => {
+    if (expectedBytes !== undefined && !readFileSync(abs).equals(expectedBytes)) {
+      fail(`源文件已变化，请重新读取后应用 patch: ${abs}`)
+    }
+  }
   try {
+    checkVersion()
     fd = openSync(temp, 'wx')
     created = true
     writeFileSync(fd, raw, 'utf8')
     fsyncSync(fd)
     closeSync(fd)
     fd = undefined
+    if (expectedBytes !== undefined) {
+      checkVersion()
+      backup = `${abs}.${randomUUID()}.bak`
+      fd = openSync(backup, 'wx')
+      backupCreated = true
+      writeFileSync(fd, expectedBytes)
+      fsyncSync(fd)
+      closeSync(fd)
+      fd = undefined
+    }
+    checkVersion()
     renameSync(temp, abs)
     created = false
+    return backup
   } catch (e) {
     if (fd !== undefined) {
       try { closeSync(fd) } catch {}
@@ -102,6 +125,11 @@ export function writeJson(file, obj) {
     if (created) {
       try { unlinkSync(temp) } catch (cleanupError) {
         cleanup = `；临时文件清理失败: ${temp}（${cleanupError.message}）`
+      }
+    }
+    if (backupCreated) {
+      try { unlinkSync(backup) } catch (cleanupError) {
+        cleanup += `；备份清理失败: ${backup}（${cleanupError.message}）`
       }
     }
     fail(`无法原子写入文件 ${abs}: ${e.message}${cleanup}`)
@@ -486,16 +514,20 @@ function mergeUpdateConfig(current, patch, path) {
   return current
 }
 
-// 字符串 find-replace：pairs 为 [[旧串, 新串], ...]，逐条替换所有出现；旧串未命中即报错
+// 按顺序进行字面替换，次数为非重叠命中总数，省略时为 1
 function replaceAllIn(op, sec, current, pairs) {
   if (typeof current !== 'string') fail(`patch ${op}.sourceData.${sec} 做字符串替换，但当前值是 ${typeof current}`)
   let cur = current
   for (const p of pairs) {
-    if (!Array.isArray(p) || p.length !== 2) fail(`patch ${op}.sourceData.${sec} 的替换项必须是 [旧串, 新串]`)
-    const [from, to] = p
+    if (!Array.isArray(p) || (p.length !== 2 && p.length !== 3)) fail(`patch ${op}.sourceData.${sec} 的替换项必须是 [旧串, 新串, 次数?]`)
+    const [from, to, count = 1] = p
     if (typeof from !== 'string' || typeof to !== 'string') fail(`patch ${op}.sourceData.${sec} 的替换项 [旧串, 新串] 必须是字符串`)
-    if (!cur.includes(from)) fail(`patch ${op}.sourceData.${sec} 替换未命中："${from}"`)
-    cur = cur.split(from).join(to)
+    if (from.length === 0) fail(`patch ${op}.sourceData.${sec} 的旧串必须是非空字符串`)
+    if (!Number.isSafeInteger(count) || count < 1) fail(`patch ${op}.sourceData.${sec} 的次数必须是正整数`)
+    const parts = cur.split(from)
+    const actual = parts.length - 1
+    if (actual !== count) fail(`patch ${op}.sourceData.${sec} ${actual === 0 ? '替换未命中' : '替换次数不符'}：预期 ${count} 次，实际 ${actual} 次，旧串 "${from}"`)
+    cur = parts.join(to)
   }
   return cur
 }
@@ -698,7 +730,7 @@ export function applyPatch(doc, patch) {
   const changes = applyPatchInPlace(next, patch)
   const errs = validateTemplate(next)
   if (errs.length > 0) {
-    fail(`patch 后模板校验失败，已中止（未写盘）：\n  - ${errs.join('\n  - ')}`)
+    fail(`patch 后模板校验失败，已中止（未写盘）：\n  - ${errs.join('\n  - ')}`, errs)
   }
   for (const key of Object.keys(doc)) delete doc[key]
   Object.assign(doc, next)
@@ -706,8 +738,8 @@ export function applyPatch(doc, patch) {
 }
 
 // ---------- 主流程 ----------
-function printHelp() {
-  console.log(`shujuku-template-tool — SillyTavern 数据库插件模板工具
+function helpText() {
+  return `shujuku-template-tool — SillyTavern 数据库插件模板工具
 
 用法:
   shujuku-template-tool overview <file.json>
@@ -723,72 +755,85 @@ function printHelp() {
   - 已有表的对象 patch 只允许改: name、sourceData 六段、columns、hiddenPhysicalColumns、columnAliases、exportConfig、orderNo；mate/updateConfig 等只读
   - patch 的 sourceData 按段替换（给哪段改哪段，未给的段保留）；columns、hiddenPhysicalColumns、columnAliases 整体替换（columns 会重建表头）
   - exportConfig 按字段合并（给哪些字段改哪些，未给的保留）：标量直接替换、extraIndexColumns 数组整体替换、placement 对象合并；extraIndexColumns 传 []、extraIndexColumnModes 传 {} 清空
-  - sourceData 段值传字符串=整体替换；传 [[旧串,新串], ...] = 字符串替换（逐条替换所有出现，旧串未命中则报错）
+  - sourceData 段值传字符串=整体替换；传 [[旧串,新串,次数?], ...] = 字面替换，次数默认 1，实际命中总数必须一致
   - hiddenPhysicalColumns 传空数组、columnAliases 传空对象可删除该字段
   - patch 键指向不存在的 sheet_* = 新增表：必需 name + columns，可选 sourceData（缺段补空串）/ orderNo / exportConfig / updateConfig；uid 固定等于表键，orderNo 默认最大+1
   - patch 文件传 - 可从 stdin 读取；--preview 可放在文件参数前后
-  - patch 在内存与写盘阶段均为原子操作，失败时保留原对象和原文件
-`)
+  - apply 写回前复核源文件版本，并自动生成唯一 .bak 字节备份；预览与失败保留源文件和备份目录状态
+  - 所有命令支持 --json，成功输出到 stdout，失败输出到 stderr 并以 1 退出
+`
 }
 
 function main() {
-  const [, , cmd, ...args] = process.argv
-  if (!cmd || cmd === '--help' || cmd === '-h') {
-    printHelp()
-    process.exit(0)
-  }
-
-  try { run(cmd, args) } catch (e) {
-    if (e instanceof CliError) {
-      console.error('错误：' + e.message)
-      process.exit(1)
+  const argv = process.argv.slice(2)
+  const separator = argv.indexOf('--')
+  let json = argv.slice(0, separator < 0 ? argv.length : separator).includes('--json')
+  let cmd
+  try {
+    const parsed = parseArgs({
+      args: argv,
+      options: {
+        json: { type: 'boolean' },
+        preview: { type: 'boolean' },
+        help: { type: 'boolean', short: 'h' },
+      },
+      allowPositionals: true,
+      strict: true,
+    })
+    json = Boolean(parsed.values.json)
+    const [command, ...args] = parsed.positionals
+    cmd = command
+    if (!cmd || cmd === 'help' || parsed.values.help) {
+      console.log(json ? JSON.stringify({ command: 'help', usage: helpText() }) : helpText())
+      return
     }
-    throw e
+    if (parsed.values.preview && cmd !== 'apply') fail('--preview 仅适用于 apply')
+    run(cmd, args, { json, preview: Boolean(parsed.values.preview) })
+  } catch (e) {
+    console.error(json
+      ? JSON.stringify({ command: cmd ?? null, valid: false, error: e.message, errors: e.errors ?? [e.message] })
+      : '错误：' + e.message)
+    process.exitCode = 1
   }
 }
 
-function run(cmd, args) {
+function run(cmd, args, { json, preview }) {
+  const output = (value, text) => console.log(json ? JSON.stringify({ command: cmd, ...value }) : text)
   switch (cmd) {
     case 'overview': {
       if (args.length !== 1) fail('用法: overview <file.json>')
-      console.log(makeOverview(readJson(args[0])))
+      const doc = readJson(args[0])
+      const sheets = parseTemplate(doc).sheets.map(({ sourceData, ...sheet }) => sheet)
+      output({ total: sheets.length, sheets }, makeOverview(doc))
       break
     }
     case 'sheets': {
       if (args.length !== 2) fail('用法: sheets <file.json> <表名>')
-      console.log(printSheet(readJson(args[0]), args[1]))
+      const doc = readJson(args[0])
+      const sheet = findSheet(doc, args[1])
+      output({ sheet: { ...doc[sheet.key], key: sheet.key, columns: sheet.columns } }, printSheet(doc, args[1]))
       break
     }
     case 'section': {
       if (args.length !== 3) fail('用法: section <file.json> <表名> <节名>')
-      console.log(printSection(readJson(args[0]), args[1], args[2]))
+      const doc = readJson(args[0])
+      const text = printSection(doc, args[1], args[2])
+      const sheet = findSheet(doc, args[1])
+      output({ key: sheet.key, name: sheet.name, section: args[2], value: sheet.sourceData[args[2]] ?? null }, text)
       break
     }
     case 'apply': {
-      let parsed
-      try {
-        parsed = parseArgs({
-          args,
-          options: { preview: { type: 'boolean' } },
-          allowPositionals: true,
-          strict: true,
-        })
-      } catch (e) {
-        fail(`apply 参数错误: ${e.message}`)
-      }
-      if (parsed.positionals.length !== 2) fail('用法: apply [--preview] <file.json> <patch.json|->')
-      const [templateFile, patchFile] = parsed.positionals
+      if (args.length !== 2) fail('用法: apply [--preview] <file.json> <patch.json|->')
+      const [templateFile, patchFile] = args
       if (templateFile === '-') fail('apply 的模板必须使用文件路径，只有 patch 可以传 -')
-      const doc = readJson(templateFile)
+      const { doc, raw } = readJsonSource(templateFile)
       const patch = readJson(patchFile)
       const changes = applyPatch(doc, patch)
-      if (!parsed.values.preview) {
-        writeJson(templateFile, doc)
-      }
-      if (changes.length > 0) console.log(changes.join('\n'))
+      const backup = preview ? null : writeJson(templateFile, doc, { expectedBytes: raw })
       const { sheets } = parseTemplate(doc)
-      console.log(`校验通过：最终 ${sheets.length} 张表，结构完整`)
-      if (!parsed.values.preview) console.log(`已写回 ${resolve(templateFile)}`)
+      const text = [...changes, `校验通过：最终 ${sheets.length} 张表，结构完整`]
+      if (!preview) text.push(`已写回 ${resolve(templateFile)}`, `备份 ${backup}`)
+      output({ changes, valid: true, preview, total: sheets.length, output: preview ? null : resolve(templateFile), backup }, text.join('\n'))
       break
     }
     case 'validate':
@@ -798,12 +843,10 @@ function run(cmd, args) {
         const errs = validateTemplate(obj)
         if (errs.length === 0) {
           const { sheets } = parseTemplate(obj)
-          console.log(`校验通过：${sheets.length} 张表，结构完整`)
+          output({ valid: true, errors: [], total: sheets.length }, `校验通过：${sheets.length} 张表，结构完整`)
           return
         }
-        console.error('校验失败：')
-        for (const e of errs) console.error('  - ' + e)
-        process.exit(1)
+        fail(`校验失败：\n  - ${errs.join('\n  - ')}`, errs)
       }
       break
     default:
