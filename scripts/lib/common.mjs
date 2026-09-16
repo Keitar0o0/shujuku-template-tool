@@ -1,4 +1,3 @@
-export const SHEET_KEYS = ['note', 'initNode', 'insertNode', 'updateNode', 'deleteNode', 'ddl']
 export const SECTION_LABELS = {
   note: '表说明 note',
   initNode: '初始化 initNode',

@@ -1,5 +1,5 @@
 import {
-  SHEET_KEYS, SECTIONS, EXPORT_BOOLEAN_FIELDS, EXPORT_STRING_FIELDS,
+  SECTIONS, EXPORT_BOOLEAN_FIELDS, EXPORT_STRING_FIELDS,
   EXPORT_PLACEMENT_FIELDS, EXPORT_FIELDS, UPDATE_CONFIG_FIELDS, isPlainObject,
 } from './common.mjs'
 
@@ -97,7 +97,7 @@ export function validateTemplate(obj) {
     if (!isPlainObject(s.sourceData)) {
       errs.push(`表 ${k} 的 sourceData 必须是对象`)
     } else {
-      for (const sec of SHEET_KEYS) {
+      for (const sec of SECTIONS) {
         if (!(sec in s.sourceData)) {
           errs.push(`表 ${k} 的 sourceData 缺少 ${sec}`)
         } else if (typeof s.sourceData[sec] !== 'string') {

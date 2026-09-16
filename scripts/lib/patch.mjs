@@ -1,5 +1,5 @@
 import {
-  SHEET_KEYS, SECTIONS, EXPORT_BOOLEAN_FIELDS, EXPORT_STRING_FIELDS,
+  SECTIONS, EXPORT_BOOLEAN_FIELDS, EXPORT_STRING_FIELDS,
   EXPORT_FIELDS, UPDATE_CONFIG_FIELDS, fail, isPlainObject,
 } from './common.mjs'
 import { validateTemplate } from './validation.mjs'
@@ -134,7 +134,7 @@ function createSheet(doc, op, val) {
     }
   }
   const sourceData = {}
-  for (const sec of SHEET_KEYS) {
+  for (const sec of SECTIONS) {
     sourceData[sec] = val.sourceData?.[sec] ?? ''
   }
   const maxOrder = Object.values(doc).reduce(
