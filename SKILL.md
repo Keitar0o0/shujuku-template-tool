@@ -1,6 +1,6 @@
 ---
 name: shujuku-template-tool
-description: 按表和语义段读取 SillyTavern「数据库」插件模板（`mate` + `sheet_*`），支持带次数校验的 patch、自动备份与可选 JSON 输出
+description: 用于读取和修改 SillyTavern 数据库/shujuku 插件的模板 JSON。当用户需要了解模板表结构、调整表名或列、编写填表提示词或 DDL、增删表或检查模板格式时使用。支持按表和提示词段落读取，以 patch 修改并校验、备份后写回
 ---
 
 ## 作用
