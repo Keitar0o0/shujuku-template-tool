@@ -21,30 +21,32 @@ description: 按表和语义段读取 SillyTavern「数据库」插件模板（`
 
 ## 命令
 
+运行环境：Node.js 22 或更高版本，使用 Node 标准库
+
 ```bash
 # 概览：表名 + 每表列
-bun ./scripts/bin/shujuku-template-tool.mjs overview <file.json>
+node ./scripts/bin/shujuku-template-tool.mjs overview <file.json>
 
 # 某张表全部六段
-bun ./scripts/bin/shujuku-template-tool.mjs sheets <file.json> <表名>
+node ./scripts/bin/shujuku-template-tool.mjs sheets <file.json> <表名>
 
 # 某张表某一节
-bun ./scripts/bin/shujuku-template-tool.mjs section <file.json> <表名> <note|initNode|insertNode|updateNode|deleteNode|ddl>
+node ./scripts/bin/shujuku-template-tool.mjs section <file.json> <表名> <note|initNode|insertNode|updateNode|deleteNode|ddl>
 
 # 应用 patch（打印改动摘要并写回原文件）
-bun ./scripts/bin/shujuku-template-tool.mjs apply <file.json> <patch.json>
+node ./scripts/bin/shujuku-template-tool.mjs apply <file.json> <patch.json>
 
 # 只打印改动摘要，不写盘；--preview 也可放在末尾
-bun ./scripts/bin/shujuku-template-tool.mjs apply --preview <file.json> <patch.json>
+node ./scripts/bin/shujuku-template-tool.mjs apply --preview <file.json> <patch.json>
 
 # 从 stdin 读取 patch
-bun ./scripts/bin/shujuku-template-tool.mjs apply <file.json> -
+node ./scripts/bin/shujuku-template-tool.mjs apply <file.json> -
 
 # 校验模板结构完整性
-bun ./scripts/bin/shujuku-template-tool.mjs validate <file.json>
+node ./scripts/bin/shujuku-template-tool.mjs validate <file.json>
 
 # 所有命令均支持 --json，可放在命令或文件参数前后
-bun ./scripts/bin/shujuku-template-tool.mjs section <file.json> <表名> note --json
+node ./scripts/bin/shujuku-template-tool.mjs section <file.json> <表名> note --json
 ```
 
 `apply` 在内存副本上完成全部修改与严格校验，写回前比对源文件与读取时的原始字节，并在源文件同目录生成唯一的 `<文件名>.<随机标识>.bak` 字节备份，最后通过临时文件原子替换源文件。预览和失败保留原文件与备份目录状态
@@ -60,7 +62,7 @@ bun ./scripts/bin/shujuku-template-tool.mjs section <file.json> <表名> note --
 | `validate` | `command`、`valid`、`errors`、`total` |
 | 失败 | `command`、`valid: false`、`error`、`errors`，整批校验错误逐条保存在 `errors` |
 
-可以在 `package.json` 的 `bin` 里 `pnpm link` / `bun link` 后直接用 `shujuku-template-tool`
+在 `scripts/` 目录执行 `npm link` 后，可直接使用 `shujuku-template-tool`
 
 ## patch 格式（通用）
 

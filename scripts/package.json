@@ -7,6 +7,9 @@
     "shujuku-template-tool": "./bin/shujuku-template-tool.mjs"
   },
   "scripts": {
-    "test": "bun test"
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

@@ -11,7 +11,7 @@
 
 ## 使用方式
 
-准备 Bun，将本项目放入 Agent 的技能目录，例如 `.agents/skills/shujuku-template-tool/`，然后直接描述需求
+准备 Node.js 22 或更高版本，将本项目放入 Agent 的技能目录，例如 `.agents/skills/shujuku-template-tool/`，然后直接描述需求
 
 > 使用 shujuku-template-tool 查看这个模板，帮我修改「世界状态」表的更新提示词
 
@@ -19,14 +19,35 @@
 
 ```bash
 # 查看模板概览
-bun ./scripts/bin/shujuku-template-tool.mjs overview template.json
+node ./scripts/bin/shujuku-template-tool.mjs overview template.json
 
 # 读取某张表的更新提示词
-bun ./scripts/bin/shujuku-template-tool.mjs section template.json '世界状态' updateNode
+node ./scripts/bin/shujuku-template-tool.mjs section template.json '世界状态' updateNode
 
 # 校验模板
-bun ./scripts/bin/shujuku-template-tool.mjs validate template.json
+node ./scripts/bin/shujuku-template-tool.mjs validate template.json
 ```
+
+## 开发
+
+在项目目录执行测试：
+
+```bash
+node --test ./scripts/test/*.test.mjs
+```
+
+脚本按职责组织于 `scripts/`：
+
+| 路径 | 职责 |
+|---|---|
+| `bin/shujuku-template-tool.mjs` | 命令入口与原有函数导出 |
+| `lib/cli.mjs` | 参数解析、命令调度与结果输出 |
+| `lib/io.mjs` | JSON 读取、版本复核、字节备份与原子写入 |
+| `lib/template.mjs` | 表解析、查找与文本呈现 |
+| `lib/validation.mjs` | 模板结构、配置与 DDL 校验 |
+| `lib/patch.mjs` | 新增、修改、删除与整批校验 |
+| `lib/common.mjs` | 共享字段定义、对象判断与错误处理 |
+| `test/` | Node 内置测试与 CLI 回归用例 |
 
 ## 致谢
 
